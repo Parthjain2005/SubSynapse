@@ -11,8 +11,11 @@ const prisma = new PrismaClient();
 const app = express();
 const port = process.env.PORT || 3000;
 
+import { loggingMiddleware } from './middleware/logging.middleware';
+
 app.use(cors());
 app.use(express.json());
+app.use(loggingMiddleware);
 
 app.get('/', (req, res) => {
   res.send('Server is running!');
@@ -29,6 +32,10 @@ app.use('/api/auth', authRoutes);
 // Use the profile routes
 import profileRoutes from './routes/profile.routes';
 app.use('/api/profile', profileRoutes);
+
+// Use the subscription routes
+import subscriptionRoutes from './routes/subscription.routes';
+app.use('/api/subscriptions', subscriptionRoutes);
 
 
 app.listen(port, () => {

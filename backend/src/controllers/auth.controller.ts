@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { AuthService } from '../services/auth.service';
 import { EmailService } from '../services/email.service';
 import { generateOtp, generateSecureToken } from '../utils/crypto.util';
+import { createAuditLog } from '../services/audit.service';
 
 const prisma = new PrismaClient();
 
@@ -40,6 +41,7 @@ export class AuthController {
       });
 
       await EmailService.sendVerificationEmail(email, verificationToken);
+      await createAuditLog('USER_REGISTER', user.id, `User ${email} registered.`);
 
       return res.status(201).json({ message: 'User registered. Please check your email for verification OTP.' });
     } catch (error) {
@@ -116,6 +118,7 @@ export class AuthController {
           data: { failedLoginAttempts: newFailedAttempts, lockoutUntil },
         });
 
+        await createAuditLog('LOGIN_FAILURE', user.id, `Failed login attempt for ${email}.`);
         return res.status(401).json({ message: 'Invalid credentials' });
       }
 
@@ -131,6 +134,7 @@ export class AuthController {
 
       const { accessToken, refreshToken } = AuthService.generateTokens(user);
 
+      await createAuditLog('LOGIN_SUCCESS', user.id, `User ${email} logged in successfully.`);
       return res.status(200).json({ accessToken, refreshToken });
     } catch (error) {
       console.error(error);
@@ -201,6 +205,7 @@ export class AuthController {
         },
       });
 
+      await createAuditLog('PASSWORD_RESET', user.id, `User ${user.email} reset their password.`);
       return res.status(200).json({ message: 'Password reset successfully' });
     } catch (error) {
       console.error(error);
