@@ -2,12 +2,22 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-export const createAuditLog = async (action: string, userId: number, details?: string) => {
-  return prisma.auditLog.create({
+export const createAuditLog = async (
+  user_id: number,
+  action: string,
+  table_name: string,
+  old_values?: string,
+  new_values?: string,
+  ip_address?: string
+) => {
+  return prisma.audit_Logs.create({
     data: {
+      user_id,
       action,
-      userId,
-      details,
+      table_name,
+      old_values,
+      new_values,
+      ip_address,
     },
   });
 };

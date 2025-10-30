@@ -15,11 +15,6 @@ export class AuthController {
       return res.status(400).json({ message: 'Email and password are required' });
     }
 
-    // Thapar-exclusive email validation
-    if (!email.endsWith('@thapar.edu')) {
-      return res.status(400).json({ message: 'Only @thapar.edu emails are allowed' });
-    }
-
     try {
       const existingUser = await prisma.user.findUnique({ where: { email } });
       if (existingUser) {
@@ -34,14 +29,20 @@ export class AuthController {
         data: {
           email,
           name,
-          password: hashedPassword,
-          verificationToken,
-          verificationTokenExpires,
+          password_hash: hashedPassword,
+        },
+      });
+
+      await prisma.email_Verifications.create({
+        data: {
+          user_id: user.id,
+          token: verificationToken,
+          expires_at: verificationTokenExpires,
         },
       });
 
       await EmailService.sendVerificationEmail(email, verificationToken);
-      await createAuditLog('USER_REGISTER', user.id, `User ${email} registered.`);
+      await createAuditLog(user.id, 'USER_REGISTER', 'User', undefined, JSON.stringify(user));
 
       return res.status(201).json({ message: 'User registered. Please check your email for verification OTP.' });
     } catch (error) {
@@ -58,23 +59,27 @@ export class AuthController {
     }
 
     try {
-      const user = await prisma.user.findFirst({
+      const verification = await prisma.email_Verifications.findUnique({
         where: {
-          verificationToken: token,
-          verificationTokenExpires: { gt: new Date() },
+          token,
         },
       });
 
-      if (!user) {
+      if (!verification || verification.expires_at < new Date() || verification.used_at) {
         return res.status(400).json({ message: 'Invalid or expired verification token' });
       }
 
       await prisma.user.update({
-        where: { id: user.id },
+        where: { id: verification.user_id },
         data: {
-          emailVerified: true,
-          verificationToken: null,
-          verificationTokenExpires: null,
+          is_verified: true,
+        },
+      });
+
+      await prisma.email_Verifications.update({
+        where: { id: verification.id },
+        data: {
+          used_at: new Date(),
         },
       });
 
@@ -99,42 +104,27 @@ export class AuthController {
         return res.status(401).json({ message: 'Invalid credentials' });
       }
 
-      if (user.lockoutUntil && user.lockoutUntil > new Date()) {
-        return res.status(403).json({ message: 'Account is locked. Please try again later.' });
-      }
-
-      const isPasswordValid = await AuthService.comparePasswords(password, user.password);
+      const isPasswordValid = await AuthService.comparePasswords(password, user.password_hash);
 
       if (!isPasswordValid) {
-        const newFailedAttempts = user.failedLoginAttempts + 1;
-        let lockoutUntil: Date | null = null;
-
-        if (newFailedAttempts >= 5) {
-          lockoutUntil = new Date(Date.now() + 15 * 60 * 1000); // Lock for 15 minutes
-        }
-
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { failedLoginAttempts: newFailedAttempts, lockoutUntil },
-        });
-
-        await createAuditLog('LOGIN_FAILURE', user.id, `Failed login attempt for ${email}.`);
+        await createAuditLog(user.id, 'LOGIN_FAILURE', 'User');
         return res.status(401).json({ message: 'Invalid credentials' });
       }
 
-      if (!user.emailVerified) {
+      if (!user.is_verified) {
         return res.status(403).json({ message: 'Please verify your email before logging in.' });
       }
 
-      // Reset failed login attempts on successful login
       await prisma.user.update({
         where: { id: user.id },
-        data: { failedLoginAttempts: 0, lockoutUntil: null },
+        data: {
+          last_login: new Date(),
+        },
       });
 
       const { accessToken, refreshToken } = AuthService.generateTokens(user);
 
-      await createAuditLog('LOGIN_SUCCESS', user.id, `User ${email} logged in successfully.`);
+      await createAuditLog(user.id, 'LOGIN_SUCCESS', 'User');
       return res.status(200).json({ accessToken, refreshToken });
     } catch (error) {
       console.error(error);
@@ -156,9 +146,12 @@ export class AuthController {
         const passwordResetToken = generateSecureToken();
         const passwordResetTokenExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { passwordResetToken, passwordResetTokenExpires },
+        await prisma.password_Reset_Tokens.create({
+            data: {
+                user_id: user.id,
+                token: passwordResetToken,
+                expires_at: passwordResetTokenExpires,
+            },
         });
 
         await EmailService.sendPasswordResetEmail(email, passwordResetToken);
@@ -181,31 +174,33 @@ export class AuthController {
     }
 
     try {
-      const user = await prisma.user.findFirst({
-        where: {
-          passwordResetToken: token,
-          passwordResetTokenExpires: { gt: new Date() },
-        },
-      });
+        const resetToken = await prisma.password_Reset_Tokens.findUnique({
+            where: {
+                token,
+            },
+        });
 
-      if (!user) {
-        return res.status(400).json({ message: 'Invalid or expired password reset token' });
-      }
+        if (!resetToken || resetToken.expires_at < new Date() || resetToken.used_at) {
+            return res.status(400).json({ message: 'Invalid or expired password reset token' });
+        }
 
       const hashedPassword = await AuthService.hashPassword(password);
 
       await prisma.user.update({
-        where: { id: user.id },
+        where: { id: resetToken.user_id },
         data: {
-          password: hashedPassword,
-          passwordResetToken: null,
-          passwordResetTokenExpires: null,
-          failedLoginAttempts: 0,
-          lockoutUntil: null,
+          password_hash: hashedPassword,
         },
       });
 
-      await createAuditLog('PASSWORD_RESET', user.id, `User ${user.email} reset their password.`);
+        await prisma.password_Reset_Tokens.update({
+            where: { id: resetToken.id },
+            data: {
+                used_at: new Date(),
+            },
+        });
+
+      await createAuditLog(resetToken.user_id, 'PASSWORD_RESET', 'User');
       return res.status(200).json({ message: 'Password reset successfully' });
     } catch (error) {
       console.error(error);
@@ -217,16 +212,15 @@ export class AuthController {
     const { token } = req.params;
 
     try {
-      const user = await prisma.user.findFirst({
-        where: {
-          passwordResetToken: token,
-          passwordResetTokenExpires: { gt: new Date() },
-        },
-      });
+        const resetToken = await prisma.password_Reset_Tokens.findUnique({
+            where: {
+                token,
+            },
+        });
 
-      if (!user) {
-        return res.status(400).json({ message: 'Invalid or expired password reset token' });
-      }
+        if (!resetToken || resetToken.expires_at < new Date() || resetToken.used_at) {
+            return res.status(400).json({ message: 'Invalid or expired password reset token' });
+        }
 
       return res.status(200).json({ message: 'Token is valid' });
     } catch (error) {

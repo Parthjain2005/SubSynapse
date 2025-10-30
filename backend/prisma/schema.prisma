@@ -11,46 +11,165 @@ datasource db {
 }
 
 model User {
-  id                        Int       @id @default(autoincrement())
-  email                     String    @unique
-  name                      String?
-  password                  String
+  id                  Int      @id @default(autoincrement())
+  name                String?
+  email               String   @unique
+  password_hash       String
+  credit_balance      Float    @default(0)
+  is_verified         Boolean  @default(false)
+  created_at          DateTime @default(now())
+  last_login          DateTime?
 
-  emailVerified             Boolean   @default(false)
-  verificationToken         String?
-  verificationTokenExpires  DateTime?
-
-  passwordResetToken        String?
-  passwordResetTokenExpires DateTime?
-
-  failedLoginAttempts       Int       @default(0)
-  lockoutUntil              DateTime?
-
-  twoFactorSecret           String?
-  isTwoFactorEnabled        Boolean   @default(false)
-
-  createdAt                 DateTime  @default(now())
-  updatedAt                 DateTime  @updatedAt
-
-  subscriptions             Subscription[]
+  owned_groups        Subscription_Groups[] @relation("Owner")
+  memberships         Group_Memberships[]
+  transactions        Transactions[]
+  withdrawal_requests Withdrawal_Requests[]
+  reviews             Reviews[]
+  audit_logs          Audit_Logs[]
+  email_verifications Email_Verifications[]
+  password_reset_tokens Password_Reset_Tokens[]
+  active_sessions     Active_Sessions[]
 }
 
-model Subscription {
-  id        Int      @id @default(autoincrement())
-  name      String
-  url       String
-  username  String
-  password  String
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model Subscription_Groups {
+  id               Int      @id @default(autoincrement())
+  owner_id         Int
+  name             String
+  service_type     String
+  total_price      Float
+  slots_total      Int
+  slots_filled     Int
+  is_active        Boolean  @default(true)
+  proof_document   String?
+  admin_approved   Boolean  @default(false)
+
+  owner            User     @relation("Owner", fields: [owner_id], references: [id])
+  members          Group_Memberships[]
+  credentials      Encrypted_Credentials[]
+
+  @@index([owner_id])
 }
 
-model AuditLog {
-  id        Int      @id @default(autoincrement())
-  action    String
-  userId    Int
-  details   String?
-  createdAt DateTime @default(now())
+model Group_Memberships {
+  user_id    Int
+  group_id   Int
+  join_date  DateTime @default(now())
+  end_date   DateTime?
+  share_amount Float
+  is_active  Boolean  @default(true)
+
+  user       User     @relation(fields: [user_id], references: [id])
+  group      Subscription_Groups @relation(fields: [group_id], references: [id])
+
+  @@id([user_id, group_id])
+  @@index([user_id])
+  @@index([group_id])
+}
+
+model Transactions {
+  id                 Int      @id @default(autoincrement())
+  user_id            Int
+  type               String
+  amount             Float
+  status             String
+  payment_gateway_id String?
+  created_at         DateTime @default(now())
+
+  user               User     @relation(fields: [user_id], references: [id])
+
+  @@index([user_id])
+}
+
+model Withdrawal_Requests {
+  id                  Int      @id @default(autoincrement())
+  user_id             Int
+  amount              Float
+  upi_id              String
+  status              String
+  requested_at        DateTime @default(now())
+  processed_at        DateTime?
+  cooldown_expires_at DateTime?
+
+  user                User     @relation(fields: [user_id], references: [id])
+
+  @@index([user_id])
+}
+
+model Encrypted_Credentials {
+  id                 Int      @id @default(autoincrement())
+  group_id           Int
+  encrypted_username String
+  encrypted_password String
+  encryption_key_id  String
+  created_at         DateTime @default(now())
+
+  group              Subscription_Groups @relation(fields: [group_id], references: [id])
+
+  @@index([group_id])
+}
+
+model Reviews {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  group_id   Int
+  rating     Int
+  comment    String?
+  created_at DateTime @default(now())
+
+  user       User     @relation(fields: [user_id], references: [id])
+
+  @@index([user_id])
+  @@index([group_id])
+}
+
+model Audit_Logs {
+  id          Int      @id @default(autoincrement())
+  user_id     Int
+  action      String
+  table_name  String
+  old_values  String?
+  new_values  String?
+  ip_address  String?
+  created_at  DateTime @default(now())
+
+  user        User     @relation(fields: [user_id], references: [id])
+
+  @@index([user_id])
+}
+
+model Email_Verifications {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  token      String   @unique
+  expires_at DateTime
+  used_at    DateTime?
+
+  user       User     @relation(fields: [user_id], references: [id])
+
+  @@index([user_id])
+}
+
+model Password_Reset_Tokens {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  token      String   @unique
+  expires_at DateTime
+  used_at    DateTime?
+
+  user       User     @relation(fields: [user_id], references: [id])
+
+  @@index([user_id])
+}
+
+model Active_Sessions {
+  id            Int      @id @default(autoincrement())
+  user_id       Int
+  session_token String   @unique
+  expires_at    DateTime
+  ip_address    String?
+  user_agent    String?
+
+  user          User     @relation(fields: [user_id], references: [id])
+
+  @@index([user_id])
 }
