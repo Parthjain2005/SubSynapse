@@ -1,13 +1,5 @@
 import React, { useState } from 'react';
 import GlassmorphicCard from './GlassmorphicCard.tsx';
-import { createRazorpayOrder, verifyRazorpayPayment } from '../services/api.ts';
-import { useAuth } from '../AuthContext.tsx';
-
-declare global {
-  interface Window {
-    Razorpay: any;
-  }
-}
 
 interface AddCreditsModalProps {
   isOpen: boolean;
@@ -21,7 +13,6 @@ const AddCreditsModal: React.FC<AddCreditsModalProps> = ({ isOpen, onClose, onAd
   const [amount, setAmount] = useState<number>(1000);
   const [customAmount, setCustomAmount] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const { user, refreshUser } = useAuth();
 
   const finalAmount = customAmount ? parseInt(customAmount) : amount;
 
@@ -34,49 +25,12 @@ const AddCreditsModal: React.FC<AddCreditsModalProps> = ({ isOpen, onClose, onAd
     setIsProcessing(true);
 
     try {
-      const orderData = await createRazorpayOrder(finalAmount);
-
-      const options = {
-        key: orderData.keyId,
-        amount: orderData.amount,
-        currency: orderData.currency,
-        name: 'SubSynapse',
-        description: `Add ${finalAmount} credits to wallet`,
-        order_id: orderData.orderId,
-        handler: async function (response: any) {
-          try {
-            const verificationResult = await verifyRazorpayPayment(
-              response.razorpay_order_id,
-              response.razorpay_payment_id,
-              response.razorpay_signature
-            );
-
-            await refreshUser();
-            alert(`Payment successful! ${verificationResult.amountAdded} credits added to your wallet.`);
-            resetAndClose();
-          } catch (error: any) {
-            alert('Payment verification failed: ' + error.message);
-          }
-        },
-        prefill: {
-          name: user?.name || '',
-          email: user?.email || '',
-        },
-        theme: {
-          color: '#0ea5e9',
-        },
-        modal: {
-          ondismiss: function() {
-            setIsProcessing(false);
-          }
-        }
-      };
-
-      const razorpay = new window.Razorpay(options);
-      razorpay.open();
-      setIsProcessing(false);
+      await onAddCredits(finalAmount);
+      alert(`Successfully added ${finalAmount} credits to your wallet!`);
+      resetAndClose();
     } catch (error: any) {
-      alert('Failed to initiate payment: ' + error.message);
+      alert('Failed to add credits: ' + error.message);
+    } finally {
       setIsProcessing(false);
     }
   };
@@ -164,15 +118,12 @@ const AddCreditsModal: React.FC<AddCreditsModalProps> = ({ isOpen, onClose, onAd
               disabled={finalAmount < 100 || isProcessing}
               className="w-full font-bold py-3 px-6 rounded-xl transition duration-300 transform hover:scale-105 shadow-lg text-center bg-sky-500 hover:bg-sky-400 text-white disabled:bg-sky-500/50 disabled:cursor-not-allowed disabled:transform-none"
             >
-              {isProcessing ? 'Processing...' : `Pay ₹${finalAmount.toLocaleString()}`}
+              {isProcessing ? 'Processing...' : `Add ${finalAmount.toLocaleString()} Credits`}
             </button>
 
-            <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-              </svg>
-              <span>Secured by Razorpay</span>
-            </div>
+            <p className="text-xs text-center text-slate-400">
+              Credits will be added instantly to your wallet
+            </p>
           </div>
         </div>
       </GlassmorphicCard>
