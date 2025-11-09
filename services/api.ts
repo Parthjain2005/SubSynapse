@@ -166,10 +166,20 @@ export const fetchMySubscriptions = async (): Promise<MySubscription[]> => {
       nextPaymentDate: membership.next_payment_date,
       endDate: membership.end_date,
       status: membership.status,
+      totalPrice: parseFloat(group.total_price),
+      slotsTotal: group.slots_total,
+      slotsFilled: group.slots_filled,
+      category: group.category,
+      tags: group.tags || [],
+      postedBy: {
+        name: group.posted_by_name || 'Unknown',
+        rating: parseFloat(group.posted_by_rating) || 0,
+      },
       credentials: {
         username: group.credentials_username,
         password: group.credentials_password,
       },
+      proof: group.proof,
     };
   });
 };
