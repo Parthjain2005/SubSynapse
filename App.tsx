@@ -4,6 +4,7 @@ import Header from './components/Header.tsx';
 import HomePage from './HomePage.tsx';
 import DashboardPage from './DashboardPage.tsx';
 import ProfilePage from './ProfilePage.tsx';
+import AdminDashboard from './AdminDashboard.tsx';
 import ManageSubscriptionModal from './components/ManageSubscriptionModal.tsx';
 import CreateGroupModal from './components/CreateGroupModal.tsx';
 import JoinGroupModal from './components/JoinGroupModal.tsx';
@@ -15,7 +16,7 @@ import { useAuth } from './AuthContext.tsx';
 import * as api from './services/api.ts';
 
 
-export type Page = 'home' | 'dashboard' | 'profile';
+export type Page = 'home' | 'dashboard' | 'profile' | 'admin';
 export type DashboardTab = 'explore' | 'dashboard';
 export type AppState = 'loading' | 'panning' | 'finished';
 
@@ -147,7 +148,7 @@ function App() {
     const currentPage = isAuthenticated ? page : 'home';
     switch (currentPage) {
       case 'dashboard':
-        return <DashboardPage 
+        return <DashboardPage
             activeTab={activeDashboardTab}
             setActiveTab={setActiveDashboardTab}
             mySubscriptions={mySubscriptions || []}
@@ -155,13 +156,15 @@ function App() {
             onJoinGroup={handleOpenJoinModal}
             />;
       case 'profile':
-        return user ? <ProfilePage 
-                        user={user} 
-                        onAddCredits={() => setAddCreditsModalOpen(true)} 
+        return user ? <ProfilePage
+                        user={user}
+                        onAddCredits={() => setAddCreditsModalOpen(true)}
                         onWithdrawCredits={() => setWithdrawModalOpen(true)}
                         onChangePassword={changePassword}
                         onUpdateProfilePicture={updateProfilePicture}
                       /> : null;
+      case 'admin':
+        return <AdminDashboard />;
       case 'home':
       default:
         return <HomePage onLogin={() => setAuthModalOpen(true)} isReady={isReady} />;

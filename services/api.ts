@@ -4,31 +4,23 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
-const getAuthToken = (): string | null => localStorage.getItem('authToken');
-
-const setAuthToken = (token: string | null) => {
-  if (token) {
-    localStorage.setItem('authToken', token);
-  } else {
-    localStorage.removeItem('authToken');
-  }
-};
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export const login = async (email: string, password: string): Promise<{ token: string; user: User }> => {
+  const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
+
+  if (authError) throw new Error(authError.message);
+
   const { data: userData, error: userError } = await supabase
     .from('users')
     .select('*')
-    .eq('email', email)
-    .maybeSingle();
+    .eq('id', authData.user.id)
+    .single();
 
-  if (userError || !userData) {
-    throw new Error('Invalid credentials');
-  }
-
-  const token = `mock-token-${userData.id}`;
-  setAuthToken(token);
+  if (userError) throw new Error(userError.message);
 
   const user: User = {
     id: userData.id,
@@ -39,69 +31,74 @@ export const login = async (email: string, password: string): Promise<{ token: s
     memberSince: new Date(userData.member_since).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
   };
 
-  return { token, user };
+  return { token: authData.session!.access_token, user };
 };
 
 export const register = async (name: string, email: string, password: string): Promise<{ token: string; user: User }> => {
-  const { data: existingUser } = await supabase
-    .from('users')
-    .select('id')
-    .eq('email', email)
-    .maybeSingle();
+  const { data: authData, error: authError } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        name: name,
+      },
+    },
+  });
 
-  if (existingUser) {
-    throw new Error('Email already registered');
-  }
+  if (authError) throw new Error(authError.message);
+  if (!authData.user) throw new Error('Registration failed');
 
-  const { data: newUser, error } = await supabase
+  const { data: userData, error: userError } = await supabase
     .from('users')
-    .insert({
-      email,
-      name,
-      credit_balance: 1000,
-      role: 'user',
-      avatar_url: `https://api.dicebear.com/8.x/adventurer/svg?seed=${name}`,
-    })
-    .select()
+    .select('*')
+    .eq('id', authData.user.id)
     .single();
 
-  if (error) throw new Error(error.message);
+  if (userError) {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    const { data: retryData } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', authData.user!.id)
+      .single();
 
-  const token = `mock-token-${newUser.id}`;
-  setAuthToken(token);
+    if (retryData) {
+      const user: User = {
+        id: retryData.id,
+        name: retryData.name,
+        email: retryData.email,
+        creditBalance: retryData.credit_balance,
+        avatarUrl: retryData.avatar_url || `https://api.dicebear.com/8.x/adventurer/svg?seed=${name}`,
+        memberSince: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+      };
+      return { token: authData.session!.access_token, user };
+    }
+  }
 
   const user: User = {
-    id: newUser.id,
-    name: newUser.name,
-    email: newUser.email,
-    creditBalance: newUser.credit_balance,
-    avatarUrl: newUser.avatar_url,
+    id: userData!.id,
+    name: userData!.name,
+    email: userData!.email,
+    creditBalance: userData!.credit_balance,
+    avatarUrl: userData!.avatar_url || `https://api.dicebear.com/8.x/adventurer/svg?seed=${name}`,
     memberSince: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
   };
 
-  return { token, user };
+  return { token: authData.session!.access_token, user };
 };
 
-export const logout = () => {
-  setAuthToken(null);
-};
-
-const getUserIdFromToken = (token: string): string | null => {
-  const match = token.match(/mock-token-(.*)/);
-  return match ? match[1] : null;
+export const logout = async () => {
+  await supabase.auth.signOut();
 };
 
 export const fetchAuthenticatedUser = async (): Promise<User | null> => {
-  const token = getAuthToken();
-  if (!token) return null;
-
-  const userId = getUserIdFromToken(token);
-  if (!userId) return null;
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
 
   const { data, error } = await supabase
     .from('users')
     .select('*')
-    .eq('id', userId)
+    .eq('id', session.user.id)
     .maybeSingle();
 
   if (error || !data) return null;
@@ -144,8 +141,8 @@ export const fetchGroups = async (): Promise<SubscriptionGroup[]> => {
 };
 
 export const fetchMySubscriptions = async (): Promise<MySubscription[]> => {
-  const user = await fetchAuthenticatedUser();
-  if (!user) return [];
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return [];
 
   const { data: memberships, error } = await supabase
     .from('memberships')
@@ -153,7 +150,7 @@ export const fetchMySubscriptions = async (): Promise<MySubscription[]> => {
       *,
       subscription_groups (*)
     `)
-    .eq('user_id', user.id)
+    .eq('user_id', session.user.id)
     .eq('status', 'active');
 
   if (error) throw new Error(error.message);
@@ -178,13 +175,13 @@ export const fetchMySubscriptions = async (): Promise<MySubscription[]> => {
 };
 
 export const joinGroup = async (subscription: MySubscription, cost: number): Promise<void> => {
-  const user = await fetchAuthenticatedUser();
-  if (!user) throw new Error('Not authenticated');
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
 
   const { data: userData } = await supabase
     .from('users')
     .select('credit_balance')
-    .eq('id', user.id)
+    .eq('id', session.user.id)
     .single();
 
   if (!userData || userData.credit_balance < cost) {
@@ -204,7 +201,7 @@ export const joinGroup = async (subscription: MySubscription, cost: number): Pro
   await supabase
     .from('users')
     .update({ credit_balance: userData.credit_balance - cost })
-    .eq('id', user.id);
+    .eq('id', session.user.id);
 
   await supabase
     .from('subscription_groups')
@@ -222,7 +219,7 @@ export const joinGroup = async (subscription: MySubscription, cost: number): Pro
   await supabase
     .from('memberships')
     .insert({
-      user_id: user.id,
+      user_id: session.user.id,
       group_id: subscription.id,
       membership_type: subscription.membershipType,
       my_share: cost,
@@ -234,7 +231,7 @@ export const joinGroup = async (subscription: MySubscription, cost: number): Pro
   await supabase
     .from('transactions')
     .insert({
-      user_id: user.id,
+      user_id: session.user.id,
       type: 'subscription_payment',
       amount: -cost,
       description: `Joined ${group.name} - ${subscription.membershipType} membership`,
@@ -243,14 +240,14 @@ export const joinGroup = async (subscription: MySubscription, cost: number): Pro
 };
 
 export const leaveGroup = async (subscriptionId: string, refund: number): Promise<void> => {
-  const user = await fetchAuthenticatedUser();
-  if (!user) throw new Error('Not authenticated');
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
 
   const { data: membership } = await supabase
     .from('memberships')
     .select('*, subscription_groups(*)')
     .eq('group_id', subscriptionId)
-    .eq('user_id', user.id)
+    .eq('user_id', session.user.id)
     .eq('status', 'active')
     .maybeSingle();
 
@@ -259,19 +256,19 @@ export const leaveGroup = async (subscriptionId: string, refund: number): Promis
   const { data: userData } = await supabase
     .from('users')
     .select('credit_balance')
-    .eq('id', user.id)
+    .eq('id', session.user.id)
     .single();
 
   if (refund > 0) {
     await supabase
       .from('users')
       .update({ credit_balance: userData!.credit_balance + refund })
-      .eq('id', user.id);
+      .eq('id', session.user.id);
 
     await supabase
       .from('transactions')
       .insert({
-        user_id: user.id,
+        user_id: session.user.id,
         type: 'refund',
         amount: refund,
         description: `Refund for leaving ${membership.subscription_groups.name}`,
@@ -295,24 +292,24 @@ export const leaveGroup = async (subscriptionId: string, refund: number): Promis
 };
 
 export const addCredits = async (amount: number): Promise<void> => {
-  const user = await fetchAuthenticatedUser();
-  if (!user) throw new Error('Not authenticated');
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
 
   const { data: userData } = await supabase
     .from('users')
     .select('credit_balance')
-    .eq('id', user.id)
+    .eq('id', session.user.id)
     .single();
 
   await supabase
     .from('users')
     .update({ credit_balance: userData!.credit_balance + amount })
-    .eq('id', user.id);
+    .eq('id', session.user.id);
 
   await supabase
     .from('transactions')
     .insert({
-      user_id: user.id,
+      user_id: session.user.id,
       type: 'credit_add',
       amount: amount,
       description: `Added ${amount} credits via payment`,
@@ -321,7 +318,7 @@ export const addCredits = async (amount: number): Promise<void> => {
 };
 
 export const createRazorpayOrder = async (amount: number): Promise<{ orderId: string; amount: number; currency: string; keyId: string }> => {
-  throw new Error('Razorpay integration requires backend server');
+  throw new Error('Razorpay integration requires Edge Function');
 };
 
 export const verifyRazorpayPayment = async (
@@ -329,12 +326,18 @@ export const verifyRazorpayPayment = async (
   razorpayPaymentId: string,
   razorpaySignature: string
 ): Promise<{ newBalance: number; amountAdded: number }> => {
-  throw new Error('Razorpay integration requires backend server');
+  throw new Error('Razorpay integration requires Edge Function');
 };
 
 export const createGroup = async (groupData: Omit<SubscriptionGroup, 'id' | 'postedBy' | 'slotsFilled'>): Promise<SubscriptionGroup> => {
-  const user = await fetchAuthenticatedUser();
-  if (!user) throw new Error('Not authenticated');
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+
+  const { data: userData } = await supabase
+    .from('users')
+    .select('name')
+    .eq('id', session.user.id)
+    .single();
 
   const { data: newGroup, error } = await supabase
     .from('subscription_groups')
@@ -350,8 +353,8 @@ export const createGroup = async (groupData: Omit<SubscriptionGroup, 'id' | 'pos
       credentials_username: groupData.credentials?.username || '',
       credentials_password: groupData.credentials?.password || '',
       proof: groupData.proof || '',
-      owner_id: user.id,
-      posted_by_name: user.name,
+      owner_id: session.user.id,
+      posted_by_name: userData!.name,
       posted_by_rating: 5.0,
     })
     .select()
@@ -378,8 +381,8 @@ export const createGroup = async (groupData: Omit<SubscriptionGroup, 'id' | 'pos
 };
 
 export const requestWithdrawal = async (amount: number, upiId: string): Promise<void> => {
-  const user = await fetchAuthenticatedUser();
-  if (!user) throw new Error('Not authenticated');
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
 
   if (amount < 500) {
     throw new Error('Minimum withdrawal amount is 500 credits');
@@ -388,7 +391,7 @@ export const requestWithdrawal = async (amount: number, upiId: string): Promise<
   const { data: userData } = await supabase
     .from('users')
     .select('credit_balance')
-    .eq('id', user.id)
+    .eq('id', session.user.id)
     .single();
 
   if (!userData || userData.credit_balance < amount) {
@@ -398,7 +401,7 @@ export const requestWithdrawal = async (amount: number, upiId: string): Promise<
   const { data: pendingRequest } = await supabase
     .from('withdrawal_requests')
     .select('id')
-    .eq('user_id', user.id)
+    .eq('user_id', session.user.id)
     .eq('status', 'pending')
     .maybeSingle();
 
@@ -409,7 +412,7 @@ export const requestWithdrawal = async (amount: number, upiId: string): Promise<
   const { error } = await supabase
     .from('withdrawal_requests')
     .insert({
-      user_id: user.id,
+      user_id: session.user.id,
       amount: amount,
       upi_id: upiId,
       status: 'pending',
@@ -419,21 +422,27 @@ export const requestWithdrawal = async (amount: number, upiId: string): Promise<
 };
 
 export const forgotPassword = async (email: string): Promise<void> => {
-  console.log(`Password reset link sent to ${email}`);
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/reset-password`,
+  });
+  if (error) throw new Error(error.message);
 };
 
 export const changePassword = async (oldPass: string, newPass: string): Promise<void> => {
-  console.log('Password changed successfully');
+  const { error } = await supabase.auth.updateUser({
+    password: newPass,
+  });
+  if (error) throw new Error(error.message);
 };
 
 export const updateProfilePicture = async (imageDataUrl: string): Promise<void> => {
-  const user = await fetchAuthenticatedUser();
-  if (!user) throw new Error('Not authenticated');
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
 
   const { error } = await supabase
     .from('users')
     .update({ avatar_url: imageDataUrl })
-    .eq('id', user.id);
+    .eq('id', session.user.id);
 
   if (error) throw new Error(error.message);
 };

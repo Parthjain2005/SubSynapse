@@ -16,6 +16,7 @@ interface AuthContextType {
   createGroup: (groupData: Omit<SubscriptionGroup, 'id' | 'postedBy' | 'slotsFilled'>) => Promise<void>;
   requestWithdrawal: (amount: number, upiId: string) => Promise<void>;
   syncUserData: () => Promise<void>;
+  refreshUser: () => Promise<void>;
   forgotPassword: (email: string) => Promise<void>;
   changePassword: (oldPass: string, newPass: string) => Promise<void>;
   updateProfilePicture: (imageDataUrl: string) => Promise<void>;
@@ -111,6 +112,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     await syncUserData();
   };
 
+  const refreshUser = async () => {
+    await syncUserData();
+  };
 
   return (
     <AuthContext.Provider value={{
@@ -127,6 +131,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       createGroup,
       requestWithdrawal,
       syncUserData,
+      refreshUser,
       forgotPassword,
       changePassword,
       updateProfilePicture

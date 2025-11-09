@@ -24,10 +24,12 @@ const NavLink: React.FC<{onClick: () => void, children: React.ReactNode, isActiv
 
 const Header: React.FC<HeaderProps> = ({ isVisible, page, user, activeDashboardTab, onNavigate, onLogin, onLogout, onCreateGroup, onAddCredits }) => {
   const isLoggedIn = !!user;
+  const isAdmin = user?.email === 'admin@subsynapse.com';
 
   const isMarketplaceActive = page === 'dashboard' && activeDashboardTab === 'explore';
   const isDashboardActive = page === 'dashboard' && activeDashboardTab === 'dashboard';
   const isProfileActive = page === 'profile';
+  const isAdminActive = page === 'admin';
   
   return (
     <header className={`sticky top-6 z-50 transition-transform duration-300 ${isVisible ? 'translate-y-0' : '-translate-y-full'}`}>
@@ -52,6 +54,9 @@ const Header: React.FC<HeaderProps> = ({ isVisible, page, user, activeDashboardT
             <NavLink onClick={() => onNavigate('dashboard', 'explore')} isActive={isMarketplaceActive}>Marketplace</NavLink>
             <NavLink onClick={() => onNavigate('dashboard', 'dashboard')} isActive={isDashboardActive}>Dashboard</NavLink>
             <NavLink onClick={() => onNavigate('profile')} isActive={isProfileActive}>Profile</NavLink>
+            {isAdmin && (
+              <NavLink onClick={() => onNavigate('admin')} isActive={isAdminActive}>Admin</NavLink>
+            )}
           </div>
 
           <div className="hidden md:flex items-center space-x-4 pr-8">
